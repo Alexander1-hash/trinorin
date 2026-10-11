@@ -88,3 +88,14 @@ The executor does not treat connectivity as authorization and does not infer suc
 ## Vercel build-rate resilience
 
 Trinorin includes `.github/workflows/trinorin-ci.yml`, which validates TypeScript and the production build in GitHub Actions and deploys the resulting Vercel prebuilt artifact. Configure the repository secret `VERCEL_TOKEN` before enabling the deployment job. This separates application builds from Vercel's remote Git build queue.
+
+
+## Digital Footprint Intelligence — public web discovery
+
+The signed-in **/footprint** page supports two user-initiated workflows:
+- Public-web discovery via Brave Search API.
+- Text matching against up to five public HTML pages supplied by the user.
+
+Configure the server-side environment variable `BRAVE_SEARCH_API_KEY` with a valid Brave Search API subscription key to enable automated public-web discovery. Do not expose this key in a `NEXT_PUBLIC_*` variable or client code. Without it, the discovery endpoint returns a clear configuration message rather than pretending a search occurred.
+
+Search results are unverified leads. They are not proof of identity or ownership and do not represent complete internet coverage. The current implementation does not sign in to social accounts, persist a footprint case, request takedowns, or delete content. Those workflows require separate platform-approved authorization, evidence retention, explicit user confirmation, and post-action verification.
