@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, ExternalLink, Globe2, Search, ShieldCheck, CheckCircle2, XCircle } from "lucide-react";
 
@@ -31,6 +31,20 @@ export default function FootprintPage() {
   const [reviewError, setReviewError] = useState("");
 
   function terms() { return termsText.split("\n").map((value) => value.trim()).filter(Boolean); }
+
+  useEffect(() => {
+    let active = true;
+    fetch("/api/privacy/findings")
+      .then(async (response) => {
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error ?? "Could not load saved findings.");
+        if (!active) return;
+        if (data.configured && Array.isArray(data.findings)) setWebResults(data.findings);
+        else if (data.message) setPersistenceWarning(data.message);
+      })
+      .catch(() => { if (active) setPersistenceWarning("Saved finding history could not be loaded."); });
+    return () => { active = false; };
+  }, []);
 
   async function runScan(event: FormEvent) {
     event.preventDefault(); setBusy(true); setError(""); setResults([]);
