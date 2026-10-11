@@ -2,7 +2,7 @@
 
 import { FormEvent, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, ExternalLink, Globe2, Search, ShieldCheck } from "lucide-react";
+import { ArrowLeft, ExternalLink, Globe2, Search, ShieldCheck, CheckCircle2, XCircle } from "lucide-react";
 
 type ScanResult = {
   submittedUrl: string; finalUrl?: string; title?: string; httpStatus?: number;
@@ -12,6 +12,7 @@ type ScanResult = {
 type WebResult = {
   title: string; url: string; description: string; age: string | null;
   source: string; matchedTerms: string[]; matchType: string; warning: string;
+  findingId?: string; reviewStatus?: string; discoveredAt?: string;
 };
 
 export default function FootprintPage() {
@@ -23,16 +24,16 @@ export default function FootprintPage() {
   const [webBoundary, setWebBoundary] = useState("");
   const [error, setError] = useState("");
   const [webError, setWebError] = useState("");
+  const [persistenceWarning, setPersistenceWarning] = useState("");
   const [busy, setBusy] = useState(false);
   const [webBusy, setWebBusy] = useState(false);
+  const [reviewingId, setReviewingId] = useState("");
+  const [reviewError, setReviewError] = useState("");
 
-  function terms() {
-    return termsText.split("\n").map((value) => value.trim()).filter(Boolean);
-  }
+  function terms() { return termsText.split("\n").map((value) => value.trim()).filter(Boolean); }
 
   async function runScan(event: FormEvent) {
-    event.preventDefault();
-    setBusy(true); setError(""); setResults([]);
+    event.preventDefault(); setBusy(true); setError(""); setResults([]);
     try {
       const response = await fetch("/api/privacy/discovery", {
         method: "POST", headers: { "content-type": "application/json" },
@@ -41,13 +42,12 @@ export default function FootprintPage() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error ?? "The scan could not run.");
       setResults(data.results ?? []); setBoundary(data.boundary ?? "");
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "The scan could not run.");
-    } finally { setBusy(false); }
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "The scan could not run."); }
+    finally { setBusy(false); }
   }
 
   async function runWebSearch() {
-    setWebBusy(true); setWebError(""); setWebResults([]); setWebBoundary("");
+    setWebBusy(true); setWebError(""); setWebResults([]); setWebBoundary(""); setPersistenceWarning(""); setReviewError("");
     try {
       const response = await fetch("/api/privacy/search-discovery", {
         method: "POST", headers: { "content-type": "application/json" },
@@ -56,11 +56,31 @@ export default function FootprintPage() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error ?? "Web discovery could not run.");
       setWebResults(data.results ?? []); setWebBoundary(data.boundary ?? "");
+      setPersistenceWarning(data.persistenceWarning ?? "");
       if (data.searchErrors?.length) setWebError(data.searchErrors.map((item: {term:string;error:string}) => `${item.term}: ${item.error}`).join(" · "));
-    } catch (cause) {
-      setWebError(cause instanceof Error ? cause.message : "Web discovery could not run.");
-    } finally { setWebBusy(false); }
+    } catch (cause) { setWebError(cause instanceof Error ? cause.message : "Web discovery could not run."); }
+    finally { setWebBusy(false); }
   }
+
+  async function reviewFinding(item: WebResult, status: "confirmed_relevant" | "not_relevant") {
+    if (!item.findingId) { setReviewError("This result has no saved finding ID. Apply the footprint migration and run a new search."); return; }
+    setReviewingId(item.findingId); setReviewError("");
+    try {
+      const response = await fetch(`/api/privacy/findings/${item.findingId}/review`, {
+        method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ status }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error ?? "Could not save this review.");
+      setWebResults((current) => current.map((entry) => entry.findingId === item.findingId ? { ...entry, reviewStatus: data.finding.review_status } : entry));
+    } catch (cause) { setReviewError(cause instanceof Error ? cause.message : "Could not save this review."); }
+    finally { setReviewingId(""); }
+  }
+
+  const statusLabel = (status?: string) => ({
+    needs_review: "Needs review", confirmed_relevant: "Confirmed relevant by user",
+    not_relevant: "Marked not relevant by user", removal_requested: "Removal request marked by user",
+    removed_verified: "Removal verified", removal_rejected: "Removal rejected",
+  }[status ?? "needs_review"] ?? "Needs review");
 
   return (
     <main className="min-h-screen bg-[#070b12] px-4 py-6 text-slate-100 sm:px-8">
@@ -68,16 +88,20 @@ export default function FootprintPage() {
         <Link href="/" className="inline-flex items-center gap-2 text-sm text-slate-400 hover:text-white"><ArrowLeft size={16} /> Command Center</Link>
         <header className="mt-8 rounded-3xl border border-white/10 bg-[#0d1420] p-6 sm:p-8">
           <div className="flex items-center gap-3"><div className="rounded-2xl border border-cyan-400/20 bg-cyan-400/10 p-3 text-cyan-300"><Globe2 size={25} /></div><div><p className="text-xs uppercase tracking-[0.22em] text-cyan-300">Trinorin · Digital Privacy</p><h1 className="mt-1 text-2xl font-semibold sm:text-3xl">Digital Footprint Intelligence</h1></div></div>
-          <p className="mt-4 max-w-2xl text-sm leading-6 text-slate-300">Search public web results for names, usernames, or phrases that may relate to your digital footprint, then inspect pages you want to verify. Results are leads, not proof of identity.</p>
+          <p className="mt-4 max-w-2xl text-sm leading-6 text-slate-300">Discover public web results, review possible matches, and retain organization-scoped findings. A name match is a lead, not proof of identity.</p>
         </header>
 
         <section className="mt-5 rounded-3xl border border-white/10 bg-[#0d1420] p-5 sm:p-7">
           <h2 className="text-lg font-semibold">1. Discover public web results</h2>
-          <p className="mt-1 text-sm text-slate-400">Enter up to five identifiers. Search runs through a configured public-web search provider.</p>
+          <p className="mt-1 text-sm text-slate-400">Enter up to five identifiers. Findings are saved for review when the database migration is installed.</p>
           <label className="mt-5 block"><span className="text-sm font-medium">Names, usernames, email addresses, or phrases (one per line)</span><textarea required value={termsText} onChange={(event) => setTermsText(event.target.value)} rows={4} placeholder={"your public name\ncurrent username\nold username"} className="mt-2 w-full rounded-xl border border-white/10 bg-[#080e17] p-3 text-sm outline-none focus:border-cyan-400/60" /></label>
           <button type="button" disabled={webBusy || !terms().length} onClick={runWebSearch} className="mt-4 inline-flex items-center gap-2 rounded-xl bg-cyan-300 px-5 py-3 text-sm font-semibold text-slate-950 disabled:opacity-50"><Search size={16} />{webBusy ? "Searching public web…" : "Discover public results"}</button>
           {webError && <p role="alert" className="mt-3 rounded-xl border border-amber-300/20 bg-amber-300/5 p-3 text-sm text-amber-100">{webError}</p>}
-          {webResults.length > 0 && <div className="mt-6 space-y-3" aria-live="polite"><h3 className="font-semibold">{webResults.length} unique public search results</h3>{webResults.map((item) => <article key={item.url} className="rounded-2xl border border-white/10 bg-[#080e17] p-4"><div className="flex items-start gap-3"><Globe2 size={18} className="mt-1 shrink-0 text-cyan-300" /><div className="min-w-0 flex-1"><a href={item.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-start gap-2 break-words font-medium text-cyan-200 hover:underline">{item.title}<ExternalLink size={13} className="mt-1 shrink-0" /></a><p className="mt-1 break-all text-xs text-slate-500">{item.url}</p><p className="mt-3 text-sm leading-6 text-slate-300">{item.description || "No description supplied by search provider."}</p><p className="mt-2 text-xs text-slate-500">Search term: {item.matchedTerms.join(", ")}{item.age ? ` · Page age: ${item.age}` : ""} · Unverified lead</p></div></div></article>)}</div>}
+          {persistenceWarning && <p role="alert" className="mt-3 rounded-xl border border-amber-300/20 bg-amber-300/5 p-3 text-sm text-amber-100">{persistenceWarning}</p>}
+          {reviewError && <p role="alert" className="mt-3 rounded-xl border border-red-300/20 bg-red-300/5 p-3 text-sm text-red-100">{reviewError}</p>}
+          {webResults.length > 0 && <div className="mt-6 space-y-3" aria-live="polite"><h3 className="font-semibold">{webResults.length} unique public search results</h3>{webResults.map((item) => <article key={item.url} className="rounded-2xl border border-white/10 bg-[#080e17] p-4"><div className="flex items-start gap-3"><Globe2 size={18} className="mt-1 shrink-0 text-cyan-300" /><div className="min-w-0 flex-1"><a href={item.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-start gap-2 break-words font-medium text-cyan-200 hover:underline">{item.title}<ExternalLink size={13} className="mt-1 shrink-0" /></a><p className="mt-1 break-all text-xs text-slate-500">{item.url}</p><p className="mt-3 text-sm leading-6 text-slate-300">{item.description || "No description supplied by search provider."}</p><p className="mt-2 text-xs text-slate-500">Search term: {item.matchedTerms.join(", ")}{item.age ? ` · Page age: ${item.age}` : ""}</p><p className="mt-2 inline-block rounded-lg border border-white/10 px-2 py-1 text-xs text-slate-300">{statusLabel(item.reviewStatus)}</p>
+            <div className="mt-3 flex flex-wrap gap-2"><button type="button" disabled={!item.findingId || reviewingId === item.findingId} onClick={() => reviewFinding(item, "confirmed_relevant")} className="inline-flex items-center gap-1 rounded-lg border border-emerald-300/20 px-3 py-2 text-xs text-emerald-200 disabled:opacity-50"><CheckCircle2 size={14} /> Confirm relevant</button><button type="button" disabled={!item.findingId || reviewingId === item.findingId} onClick={() => reviewFinding(item, "not_relevant")} className="inline-flex items-center gap-1 rounded-lg border border-white/10 px-3 py-2 text-xs text-slate-300 disabled:opacity-50"><XCircle size={14} /> Not relevant</button></div>
+            <p className="mt-2 text-xs text-slate-500">Review status records your assessment only. It does not contact the site owner or remove content.</p></div></div></article>)}</div>}
           {webBoundary && <p className="mt-4 rounded-xl border border-amber-300/20 bg-amber-300/5 p-4 text-xs leading-5 text-amber-100">{webBoundary}</p>}
         </section>
 
@@ -90,7 +114,7 @@ export default function FootprintPage() {
 
         {results.length > 0 && <section className="mt-6 space-y-3" aria-live="polite"><h2 className="text-lg font-semibold">Page scan results</h2>{results.map((result, index) => <article key={result.submittedUrl + index} className="rounded-2xl border border-white/10 bg-[#0d1420] p-5"><div className="flex items-start gap-3"><ShieldCheck size={20} className={result.error ? "text-amber-300" : "text-cyan-300"} /><div className="min-w-0 flex-1"><h3 className="break-words font-medium">{result.title ?? result.submittedUrl}</h3><p className="mt-1 break-all text-xs text-slate-500">{result.finalUrl ?? result.submittedUrl}</p>{result.error ? <p className="mt-3 text-sm text-amber-200">{result.error}</p> : <><p className="mt-3 text-sm text-slate-300">{result.matchCount ? `Possible text match: ${result.matchedTerms?.join(", ")}` : "No supplied terms were found in the extracted page text."}</p>{result.evidenceExcerpt && <blockquote className="mt-3 rounded-xl bg-black/20 p-3 text-sm leading-6 text-slate-300">{result.evidenceExcerpt}</blockquote>}<p className="mt-2 text-xs text-slate-500">HTTP {result.httpStatus} · {result.confidence === "possible_match" ? "Possible match — manual review required" : "No match found"}</p></>}</div></div></article>)}</section>}
         {boundary && <p className="mt-4 rounded-xl border border-amber-300/20 bg-amber-300/5 p-4 text-xs leading-5 text-amber-100">{boundary}</p>}
-        <p className="mt-6 text-xs leading-5 text-slate-500">This version searches public web indexes when a search API key is configured. It does not access private accounts, guarantee discovery of every mention, or delete content. Review each result and use platform-authorized privacy or removal workflows.</p>
+        <p className="mt-6 text-xs leading-5 text-slate-500">Search results are not proof of identity. This feature does not access private accounts, guarantee discovery of every mention, or delete content. Use platform-authorized privacy and removal workflows.</p>
       </div>
     </main>
   );
