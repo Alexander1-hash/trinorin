@@ -29,6 +29,12 @@ export default function FootprintPage() {
   const [webBusy, setWebBusy] = useState(false);
   const [reviewingId, setReviewingId] = useState("");
   const [reviewError, setReviewError] = useState("");
+  const [requestExplanation, setRequestExplanation] = useState("");
+  const [draftFinding, setDraftFinding] = useState<WebResult | null>(null);
+  const [removalDraft, setRemovalDraft] = useState("");
+  const [draftNotice, setDraftNotice] = useState("");
+  const [draftBusy, setDraftBusy] = useState(false);
+  const [draftError, setDraftError] = useState("");
 
   function terms() { return termsText.split("\n").map((value) => value.trim()).filter(Boolean); }
 
@@ -90,6 +96,27 @@ export default function FootprintPage() {
     finally { setReviewingId(""); }
   }
 
+
+  async function prepareRemovalDraft() {
+    if (!draftFinding?.findingId) { setDraftError("Save this finding before preparing a request."); return; }
+    setDraftBusy(true); setDraftError(""); setRemovalDraft(""); setDraftNotice("");
+    try {
+      const response = await fetch(`/api/privacy/findings/${draftFinding.findingId}/removal-request`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ explanation: requestExplanation }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error ?? "Could not prepare the request.");
+      setRemovalDraft(data.draft ?? ""); setDraftNotice(data.notice ?? "");
+    } catch (cause) { setDraftError(cause instanceof Error ? cause.message : "Could not prepare the request."); }
+    finally { setDraftBusy(false); }
+  }
+
+  async function copyRemovalDraft() {
+    try { await navigator.clipboard.writeText(removalDraft); setDraftNotice("Draft copied to clipboard. Nothing has been sent; use the site's official removal channel."); }
+    catch { setDraftError("Clipboard access was blocked. Select and copy the draft text manually."); }
+  }
+
   const statusLabel = (status?: string) => ({
     needs_review: "Needs review", confirmed_relevant: "Confirmed relevant by user",
     not_relevant: "Marked not relevant by user", removal_requested: "Removal request marked by user",
@@ -115,7 +142,20 @@ export default function FootprintPage() {
           {reviewError && <p role="alert" className="mt-3 rounded-xl border border-red-300/20 bg-red-300/5 p-3 text-sm text-red-100">{reviewError}</p>}
           {webResults.length > 0 && <div className="mt-6 space-y-3" aria-live="polite"><h3 className="font-semibold">{webResults.length} unique public search results</h3>{webResults.map((item) => <article key={item.url} className="rounded-2xl border border-white/10 bg-[#080e17] p-4"><div className="flex items-start gap-3"><Globe2 size={18} className="mt-1 shrink-0 text-cyan-300" /><div className="min-w-0 flex-1"><a href={item.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-start gap-2 break-words font-medium text-cyan-200 hover:underline">{item.title}<ExternalLink size={13} className="mt-1 shrink-0" /></a><p className="mt-1 break-all text-xs text-slate-500">{item.url}</p><p className="mt-3 text-sm leading-6 text-slate-300">{item.description || "No description supplied by search provider."}</p><p className="mt-2 text-xs text-slate-500">Search term: {item.matchedTerms.join(", ")}{item.age ? ` · Page age: ${item.age}` : ""}</p><p className="mt-2 inline-block rounded-lg border border-white/10 px-2 py-1 text-xs text-slate-300">{statusLabel(item.reviewStatus)}</p>
             <div className="mt-3 flex flex-wrap gap-2"><button type="button" disabled={!item.findingId || reviewingId === item.findingId} onClick={() => reviewFinding(item, "confirmed_relevant")} className="inline-flex items-center gap-1 rounded-lg border border-emerald-300/20 px-3 py-2 text-xs text-emerald-200 disabled:opacity-50"><CheckCircle2 size={14} /> Confirm relevant</button><button type="button" disabled={!item.findingId || reviewingId === item.findingId} onClick={() => reviewFinding(item, "not_relevant")} className="inline-flex items-center gap-1 rounded-lg border border-white/10 px-3 py-2 text-xs text-slate-300 disabled:opacity-50"><XCircle size={14} /> Not relevant</button></div>
-            <p className="mt-2 text-xs text-slate-500">Review status records your assessment only. It does not contact the site owner or remove content.</p></div></div></article>)}</div>}
+            <p className="mt-2 text-xs text-slate-500">Review status records your assessment only. It does not contact the site owner or remove content.</p>
+            <button type="button" disabled={!item.findingId} onClick={() => { setDraftFinding(item); setRequestExplanation(""); setRemovalDraft(""); setDraftError(""); setDraftNotice(""); }} className="mt-3 rounded-lg border border-cyan-300/20 px-3 py-2 text-xs text-cyan-200 disabled:opacity-50">Prepare removal / correction request</button></div></div></article>)}</div>}
+
+          {draftFinding && <section className="mt-5 rounded-2xl border border-cyan-300/20 bg-[#080e17] p-4 sm:p-5">
+            <h3 className="font-semibold">Prepare a removal or correction request</h3>
+            <p className="mt-2 break-all text-xs text-slate-400">{draftFinding.url}</p>
+            <p className="mt-2 text-sm text-slate-300">Explain the issue truthfully. This creates a draft for you to review; it does not submit a request or confirm you own the content.</p>
+            <label className="mt-4 block"><span className="text-sm">Reason for requesting review</span><textarea value={requestExplanation} onChange={(event) => setRequestExplanation(event.target.value)} maxLength={1500} rows={3} placeholder="For example: this page exposes personal information that I believe should be removed..." className="mt-2 w-full rounded-xl border border-white/10 bg-[#0d1420] p-3 text-sm outline-none focus:border-cyan-400/60" /></label>
+            {draftError && <p role="alert" className="mt-3 text-sm text-red-200">{draftError}</p>}
+            <div className="mt-3 flex flex-wrap gap-2"><button type="button" disabled={draftBusy || !requestExplanation.trim()} onClick={prepareRemovalDraft} className="rounded-xl bg-cyan-300 px-4 py-2 text-sm font-semibold text-slate-950 disabled:opacity-50">{draftBusy ? "Preparing…" : "Generate request draft"}</button><button type="button" onClick={() => setDraftFinding(null)} className="rounded-xl border border-white/10 px-4 py-2 text-sm text-slate-300">Close</button></div>
+            {removalDraft && <><textarea readOnly aria-label="Generated removal request draft" value={removalDraft} rows={14} className="mt-4 w-full rounded-xl border border-white/10 bg-[#0d1420] p-3 text-sm leading-6 text-slate-200" /><button type="button" onClick={copyRemovalDraft} className="mt-3 rounded-xl border border-cyan-300/20 px-4 py-2 text-sm text-cyan-200">Copy draft</button></>}
+            {draftNotice && <p className="mt-3 rounded-xl border border-amber-300/20 bg-amber-300/5 p-3 text-xs leading-5 text-amber-100">{draftNotice}</p>}
+          </section>}
+
           {webBoundary && <p className="mt-4 rounded-xl border border-amber-300/20 bg-amber-300/5 p-4 text-xs leading-5 text-amber-100">{webBoundary}</p>}
         </section>
 
