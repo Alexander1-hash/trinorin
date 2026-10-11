@@ -82,7 +82,7 @@ export default function FootprintPage() {
     finally { setWebBusy(false); }
   }
 
-  async function reviewFinding(item: WebResult, status: "confirmed_relevant" | "not_relevant") {
+  async function reviewFinding(item: WebResult, status: "confirmed_relevant" | "not_relevant" | "removal_requested") {
     if (!item.findingId) { setReviewError("This result has no saved finding ID. Apply the footprint migration and run a new search."); return; }
     setReviewingId(item.findingId); setReviewError("");
     try {
@@ -119,7 +119,7 @@ export default function FootprintPage() {
 
   const statusLabel = (status?: string) => ({
     needs_review: "Needs review", confirmed_relevant: "Confirmed relevant by user",
-    not_relevant: "Marked not relevant by user", removal_requested: "Removal request marked by user",
+    not_relevant: "Marked not relevant by user", removal_requested: "User marked request submitted",
     removed_verified: "Removal verified", removal_rejected: "Removal rejected",
   }[status ?? "needs_review"] ?? "Needs review");
 
@@ -152,7 +152,7 @@ export default function FootprintPage() {
             <label className="mt-4 block"><span className="text-sm">Reason for requesting review</span><textarea value={requestExplanation} onChange={(event) => setRequestExplanation(event.target.value)} maxLength={1500} rows={3} placeholder="For example: this page exposes personal information that I believe should be removed..." className="mt-2 w-full rounded-xl border border-white/10 bg-[#0d1420] p-3 text-sm outline-none focus:border-cyan-400/60" /></label>
             {draftError && <p role="alert" className="mt-3 text-sm text-red-200">{draftError}</p>}
             <div className="mt-3 flex flex-wrap gap-2"><button type="button" disabled={draftBusy || !requestExplanation.trim()} onClick={prepareRemovalDraft} className="rounded-xl bg-cyan-300 px-4 py-2 text-sm font-semibold text-slate-950 disabled:opacity-50">{draftBusy ? "Preparing…" : "Generate request draft"}</button><button type="button" onClick={() => setDraftFinding(null)} className="rounded-xl border border-white/10 px-4 py-2 text-sm text-slate-300">Close</button></div>
-            {removalDraft && <><textarea readOnly aria-label="Generated removal request draft" value={removalDraft} rows={14} className="mt-4 w-full rounded-xl border border-white/10 bg-[#0d1420] p-3 text-sm leading-6 text-slate-200" /><button type="button" onClick={copyRemovalDraft} className="mt-3 rounded-xl border border-cyan-300/20 px-4 py-2 text-sm text-cyan-200">Copy draft</button></>}
+            {removalDraft && <><textarea readOnly aria-label="Generated removal request draft" value={removalDraft} rows={14} className="mt-4 w-full rounded-xl border border-white/10 bg-[#0d1420] p-3 text-sm leading-6 text-slate-200" /><div className="mt-3 flex flex-wrap gap-2"><button type="button" onClick={copyRemovalDraft} className="rounded-xl border border-cyan-300/20 px-4 py-2 text-sm text-cyan-200">Copy draft</button><button type="button" disabled={reviewingId === draftFinding.findingId || draftFinding.reviewStatus === "removal_requested"} onClick={() => reviewFinding(draftFinding, "removal_requested")} className="rounded-xl border border-emerald-300/20 px-4 py-2 text-sm text-emerald-200 disabled:opacity-50">I submitted this request</button></div></>}
             {draftNotice && <p className="mt-3 rounded-xl border border-amber-300/20 bg-amber-300/5 p-3 text-xs leading-5 text-amber-100">{draftNotice}</p>}
           </section>}
 
