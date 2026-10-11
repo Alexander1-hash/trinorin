@@ -35,6 +35,9 @@ export default function FootprintPage() {
   const [draftNotice, setDraftNotice] = useState("");
   const [draftBusy, setDraftBusy] = useState(false);
   const [draftError, setDraftError] = useState("");
+  const [verificationBusyId, setVerificationBusyId] = useState("");
+  const [verificationResults, setVerificationResults] = useState<Record<string, { status: string; detail: string; checkedAt?: string }>>({});
+  const [verificationError, setVerificationError] = useState("");
 
   function terms() { return termsText.split("\n").map((value) => value.trim()).filter(Boolean); }
 
@@ -97,6 +100,19 @@ export default function FootprintPage() {
   }
 
 
+  async function verifyFinding(item: WebResult) {
+    if (!item.findingId) { setVerificationError("Save this finding before checking it."); return; }
+    setVerificationBusyId(item.findingId); setVerificationError("");
+    try {
+      const response = await fetch(`/api/privacy/findings/${item.findingId}/verify`, { method: "POST" });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error ?? "Could not verify this finding.");
+      if (data.check) setVerificationResults((current) => ({ ...current, [item.findingId!]: { status: data.check.verification_status, detail: data.check.detail, checkedAt: data.check.checked_at } }));
+      if (data.notice) setVerificationError(data.notice);
+    } catch (cause) { setVerificationError(cause instanceof Error ? cause.message : "Could not verify this finding."); }
+    finally { setVerificationBusyId(""); }
+  }
+
   async function prepareRemovalDraft() {
     if (!draftFinding?.findingId) { setDraftError("Save this finding before preparing a request."); return; }
     setDraftBusy(true); setDraftError(""); setRemovalDraft(""); setDraftNotice("");
@@ -142,7 +158,7 @@ export default function FootprintPage() {
           {reviewError && <p role="alert" className="mt-3 rounded-xl border border-red-300/20 bg-red-300/5 p-3 text-sm text-red-100">{reviewError}</p>}
           {webResults.length > 0 && <div className="mt-6 space-y-3" aria-live="polite"><h3 className="font-semibold">{webResults.length} unique public search results</h3>{webResults.map((item) => <article key={item.url} className="rounded-2xl border border-white/10 bg-[#080e17] p-4"><div className="flex items-start gap-3"><Globe2 size={18} className="mt-1 shrink-0 text-cyan-300" /><div className="min-w-0 flex-1"><a href={item.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-start gap-2 break-words font-medium text-cyan-200 hover:underline">{item.title}<ExternalLink size={13} className="mt-1 shrink-0" /></a><p className="mt-1 break-all text-xs text-slate-500">{item.url}</p><p className="mt-3 text-sm leading-6 text-slate-300">{item.description || "No description supplied by search provider."}</p><p className="mt-2 text-xs text-slate-500">Search term: {item.matchedTerms.join(", ")}{item.age ? ` · Page age: ${item.age}` : ""}</p><p className="mt-2 inline-block rounded-lg border border-white/10 px-2 py-1 text-xs text-slate-300">{statusLabel(item.reviewStatus)}</p>
             <div className="mt-3 flex flex-wrap gap-2"><button type="button" disabled={!item.findingId || reviewingId === item.findingId} onClick={() => reviewFinding(item, "confirmed_relevant")} className="inline-flex items-center gap-1 rounded-lg border border-emerald-300/20 px-3 py-2 text-xs text-emerald-200 disabled:opacity-50"><CheckCircle2 size={14} /> Confirm relevant</button><button type="button" disabled={!item.findingId || reviewingId === item.findingId} onClick={() => reviewFinding(item, "not_relevant")} className="inline-flex items-center gap-1 rounded-lg border border-white/10 px-3 py-2 text-xs text-slate-300 disabled:opacity-50"><XCircle size={14} /> Not relevant</button></div>
-            <p className="mt-2 text-xs text-slate-500">Review status records your assessment only. It does not contact the site owner or remove content.</p>
+            <p className="mt-2 text-xs text-slate-500">Review status records your assessment only. It does not contact the site owner or remove content.</p><button type="button" disabled={!item.findingId || verificationBusyId === item.findingId} onClick={() => verifyFinding(item)} className="mt-3 rounded-lg border border-violet-300/20 px-3 py-2 text-xs text-violet-200 disabled:opacity-50">{verificationBusyId === item.findingId ? "Checking public page…" : "Check current public page"}</button>{verificationResults[item.findingId ?? ""] && <div className="mt-2 rounded-xl border border-violet-300/20 bg-violet-300/5 p-3"><p className="text-xs font-medium text-violet-100">Latest check: {verificationResults[item.findingId ?? ""].status.replaceAll("_", " ")}</p><p className="mt-1 text-xs leading-5 text-slate-300">{verificationResults[item.findingId ?? ""].detail}</p><p className="mt-1 text-xs text-slate-500">{verificationResults[item.findingId ?? ""].checkedAt ? new Date(verificationResults[item.findingId ?? ""].checkedAt!).toLocaleString() : "Timestamp pending"}</p></div>}
             <button type="button" disabled={!item.findingId} onClick={() => { setDraftFinding(item); setRequestExplanation(""); setRemovalDraft(""); setDraftError(""); setDraftNotice(""); }} className="mt-3 rounded-lg border border-cyan-300/20 px-3 py-2 text-xs text-cyan-200 disabled:opacity-50">Prepare removal / correction request</button></div></div></article>)}</div>}
 
           {draftFinding && <section className="mt-5 rounded-2xl border border-cyan-300/20 bg-[#080e17] p-4 sm:p-5">
