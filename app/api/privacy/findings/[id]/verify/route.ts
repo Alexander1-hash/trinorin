@@ -148,3 +148,29 @@ export async function POST(_request: Request, context: { params: Promise<{ id: s
     return NextResponse.json({ error: "Unable to verify this public footprint finding." }, { status: 500 });
   }
 }
+
+
+export async function GET(_request: Request, context: { params: Promise<{ id: string }> }) {
+  try {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const { id } = await context.params;
+    const { data: profile } = await supabase.from("profiles").select("organization_id").eq("id", user.id).maybeSingle();
+    if (!profile?.organization_id) return NextResponse.json({ error: "Your account is not connected to an organization." }, { status: 409 });
+
+    const { data: finding, error: findingError } = await supabase.from("privacy_footprint_findings")
+      .select("id").eq("id", id).eq("organization_id", profile.organization_id).maybeSingle();
+    if (findingError) return NextResponse.json({ error: "Finding storage is unavailable." }, { status: 500 });
+    if (!finding) return NextResponse.json({ error: "Finding not found in your organization." }, { status: 404 });
+
+    const { data: checks, error } = await supabase.from("privacy_footprint_verification_checks")
+      .select("id,verification_status,http_status,page_title,checked_term,detail,checked_at,source_url")
+      .eq("organization_id", profile.organization_id).eq("finding_id", id)
+      .order("checked_at", { ascending: false }).limit(20);
+    if (error) return NextResponse.json({ error: "Verification history is unavailable. Apply the verification migration." }, { status: 500 });
+    return NextResponse.json({ checks: checks ?? [] });
+  } catch {
+    return NextResponse.json({ error: "Unable to load verification history." }, { status: 500 });
+  }
+}
