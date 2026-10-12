@@ -66,13 +66,13 @@ export async function POST(request: Request) {
                   : null,
               ).filter((id): id is string => Boolean(id))
             : [];
+          const field=typeof c.field==="string"?c.field:"unknown";
           const providerEventId = [...messageIds, ...statusIds].join(",");
           const fingerprint=await sign(secret,providerEventId
             ? wabaId+":"+String(meta.phone_number_id)+":"+field+":"+providerEventId
-            : wabaId+":"+String(meta.phone_number_id)+":"+JSON.stringify(value));
+            : wabaId+":"+String(meta.phone_number_id)+":"+field+":"+JSON.stringify(value));
           const {data:dupe}=await admin.from("security_evidence").select("id").eq("organization_id",integration.organization_id).eq("source","whatsapp_events").contains("data",{webhook_fingerprint:fingerprint}).limit(1).maybeSingle();
           if(dupe)continue;
-          const field=typeof c.field==="string"?c.field:"unknown";
           const title="WhatsApp event: "+field;
           const summary=JSON.stringify(value).slice(0,5000);
           const normalized=normalizeSecurityEvent({event_type:"whatsapp."+field,severity:"info",source:"whatsapp_events",title,description:summary,observed_at:new Date().toISOString(),indicators:[]});

@@ -345,13 +345,17 @@ export default function IntegrationsPage() {
           )
         : [];
       const whatsappBusinessAccounts: WhatsAppBusinessAccount[] = integration.integration_type === "whatsapp" && Array.isArray(data.whatsappBusinessAccounts)
-        ? data.whatsappBusinessAccounts
+        ? (data.whatsappBusinessAccounts as unknown[])
             .filter((item: unknown): item is WhatsAppBusinessAccount =>
               Boolean(item && typeof item === "object" && typeof (item as { id?: unknown }).id === "string"),
             )
-            .map((item) => ({
+            .map((item: WhatsAppBusinessAccount) => ({
               ...item,
-              phoneNumbers: Array.isArray(item.phoneNumbers) ? item.phoneNumbers.filter((phone): phone is WhatsAppPhone => Boolean(phone && typeof phone.id === "string")) : [],
+              phoneNumbers: Array.isArray(item.phoneNumbers)
+                ? (item.phoneNumbers as unknown[]).filter((phone: unknown): phone is WhatsAppPhone =>
+                    Boolean(phone && typeof phone === "object" && typeof (phone as { id?: unknown }).id === "string"),
+                  )
+                : [],
             }))
         : [];
       setDiscoveredAssets((current) => ({

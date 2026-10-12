@@ -22,9 +22,11 @@ export async function POST(request: Request) {
     }, { status: 503 });
 
     const body = await request.json();
-    const terms = Array.isArray(body?.terms)
-      ? [...new Set(body.terms.filter((v: unknown): v is string => typeof v === "string").map((v: string) => v.trim()).filter(Boolean))].slice(0, 5)
-      : [];
+    const rawTerms: unknown[] = Array.isArray(body?.terms) ? body.terms as unknown[] : [];
+    const terms = [...new Set(rawTerms
+      .filter((value): value is string => typeof value === "string")
+      .map((value) => value.trim())
+      .filter((value) => value.length > 0))].slice(0, 5);
     if (!terms.length) return NextResponse.json({ error: "Enter at least one name, username, or phrase to search." }, { status: 400 });
     if (terms.some((term: string) => term.length > 100)) return NextResponse.json({ error: "Each search term must be 100 characters or fewer." }, { status: 400 });
 
