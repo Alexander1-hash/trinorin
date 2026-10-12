@@ -40,6 +40,14 @@ export default function FootprintPage() {
   const [verificationError, setVerificationError] = useState("");
   const [verificationHistory, setVerificationHistory] = useState<Record<string, Array<{ id: string; verification_status: string; http_status: number | null; detail: string; checked_at: string; source_url: string }>>>({});
   const [historyBusyId, setHistoryBusyId] = useState("");
+  const [outcomeFinding, setOutcomeFinding] = useState<WebResult | null>(null);
+  const [outcomeStatus, setOutcomeStatus] = useState("no_response");
+  const [outcomeNote, setOutcomeNote] = useState("");
+  const [outcomeBusy, setOutcomeBusy] = useState(false);
+  const [outcomeError, setOutcomeError] = useState("");
+  const [outcomeNotice, setOutcomeNotice] = useState("");
+  const [outcomeHistory, setOutcomeHistory] = useState<Record<string, Array<{ id: string; outcome: string; note: string; reported_at: string }>>>({});
+  const [outcomeHistoryBusyId, setOutcomeHistoryBusyId] = useState("");
 
   function terms() { return termsText.split("\n").map((value) => value.trim()).filter(Boolean); }
 
@@ -127,6 +135,45 @@ export default function FootprintPage() {
     finally { setHistoryBusyId(""); }
   }
 
+  async function loadOutcomeHistory(item: WebResult) {
+    if (!item.findingId) return;
+    setOutcomeHistoryBusyId(item.findingId); setOutcomeError("");
+    try {
+      const response = await fetch(`/api/privacy/findings/${item.findingId}/outcome`);
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error ?? "Could not load outcome history.");
+      setOutcomeHistory((current) => ({ ...current, [item.findingId!]: data.outcomes ?? [] }));
+      setOutcomeNotice(data.notice ?? "Outcome reports are user-reported.");
+    } catch (cause) { setOutcomeError(cause instanceof Error ? cause.message : "Could not load outcome history."); }
+    finally { setOutcomeHistoryBusyId(""); }
+  }
+
+  async function saveOutcome() {
+    if (!outcomeFinding?.findingId) return;
+    setOutcomeBusy(true); setOutcomeError(""); setOutcomeNotice("");
+    try {
+      const response = await fetch(`/api/privacy/findings/${outcomeFinding.findingId}/outcome`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ outcome: outcomeStatus, note: outcomeNote }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error ?? "Could not save this outcome.");
+      setOutcomeHistory((current) => ({ ...current, [outcomeFinding.findingId!]: [data.outcome, ...(current[outcomeFinding.findingId!] ?? [])] }));
+      setOutcomeNotice(data.notice ?? "Outcome saved as user-reported.");
+      setOutcomeNote("");
+    } catch (cause) { setOutcomeError(cause instanceof Error ? cause.message : "Could not save this outcome."); }
+    finally { setOutcomeBusy(false); }
+  }
+
+  const outcomeLabel = (value: string) => ({
+    no_response: "No response yet",
+    needs_more_information: "Website requested more information",
+    request_accepted: "Website says request accepted",
+    request_rejected: "Website says request rejected",
+    content_removed_reported: "Content removal reported by user",
+    content_reappeared_reported: "Content reappeared reported by user",
+  }[value] ?? value.replaceAll("_", " "));
+
   async function prepareRemovalDraft() {
     if (!draftFinding?.findingId) { setDraftError("Save this finding before preparing a request."); return; }
     setDraftBusy(true); setDraftError(""); setRemovalDraft(""); setDraftNotice("");
@@ -174,7 +221,18 @@ export default function FootprintPage() {
           {webResults.length > 0 && <div className="mt-6 space-y-3" aria-live="polite"><h3 className="font-semibold">{webResults.length} unique public search results</h3>{webResults.map((item) => <article key={item.url} className="rounded-2xl border border-white/10 bg-[#080e17] p-4"><div className="flex items-start gap-3"><Globe2 size={18} className="mt-1 shrink-0 text-cyan-300" /><div className="min-w-0 flex-1"><a href={item.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-start gap-2 break-words font-medium text-cyan-200 hover:underline">{item.title}<ExternalLink size={13} className="mt-1 shrink-0" /></a><p className="mt-1 break-all text-xs text-slate-500">{item.url}</p><p className="mt-3 text-sm leading-6 text-slate-300">{item.description || "No description supplied by search provider."}</p><p className="mt-2 text-xs text-slate-500">Search term: {item.matchedTerms.join(", ")}{item.age ? ` · Page age: ${item.age}` : ""}</p><p className="mt-2 inline-block rounded-lg border border-white/10 px-2 py-1 text-xs text-slate-300">{statusLabel(item.reviewStatus)}</p>
             <div className="mt-3 flex flex-wrap gap-2"><button type="button" disabled={!item.findingId || reviewingId === item.findingId} onClick={() => reviewFinding(item, "confirmed_relevant")} className="inline-flex items-center gap-1 rounded-lg border border-emerald-300/20 px-3 py-2 text-xs text-emerald-200 disabled:opacity-50"><CheckCircle2 size={14} /> Confirm relevant</button><button type="button" disabled={!item.findingId || reviewingId === item.findingId} onClick={() => reviewFinding(item, "not_relevant")} className="inline-flex items-center gap-1 rounded-lg border border-white/10 px-3 py-2 text-xs text-slate-300 disabled:opacity-50"><XCircle size={14} /> Not relevant</button></div>
             <p className="mt-2 text-xs text-slate-500">Review status records your assessment only. It does not contact the site owner or remove content.</p><button type="button" disabled={!item.findingId || verificationBusyId === item.findingId} onClick={() => verifyFinding(item)} className="mt-3 rounded-lg border border-violet-300/20 px-3 py-2 text-xs text-violet-200 disabled:opacity-50">{verificationBusyId === item.findingId ? "Checking public page…" : "Check current public page"}</button><button type="button" disabled={!item.findingId || historyBusyId === item.findingId} onClick={() => loadVerificationHistory(item)} className="ml-2 mt-3 rounded-lg border border-white/10 px-3 py-2 text-xs text-slate-300 disabled:opacity-50">{historyBusyId === item.findingId ? "Loading history…" : "View check history"}</button>{verificationHistory[item.findingId ?? ""] && <div className="mt-2 space-y-2 rounded-xl border border-white/10 p-3"><p className="text-xs font-semibold text-slate-200">Verification history · {verificationHistory[item.findingId ?? ""].length} checks</p>{verificationHistory[item.findingId ?? ""].length === 0 ? <p className="text-xs text-slate-400">No saved checks yet.</p> : verificationHistory[item.findingId ?? ""].map((check) => <div key={check.id} className="border-t border-white/5 pt-2"><p className="text-xs text-violet-100">{check.verification_status.replaceAll("_", " ")}{check.http_status ? ` · HTTP ${check.http_status}` : ""}</p><p className="mt-1 text-xs text-slate-300">{check.detail}</p><p className="mt-1 break-all text-xs text-slate-500">{check.source_url} · {new Date(check.checked_at).toLocaleString()}</p></div>)}</div>}{verificationResults[item.findingId ?? ""] && <div className="mt-2 rounded-xl border border-violet-300/20 bg-violet-300/5 p-3"><p className="text-xs font-medium text-violet-100">Latest check: {verificationResults[item.findingId ?? ""].status.replaceAll("_", " ")}</p><p className="mt-1 text-xs leading-5 text-slate-300">{verificationResults[item.findingId ?? ""].detail}</p><p className="mt-1 text-xs text-slate-500">{verificationResults[item.findingId ?? ""].checkedAt ? new Date(verificationResults[item.findingId ?? ""].checkedAt!).toLocaleString() : "Timestamp pending"}</p></div>}
-            <button type="button" disabled={!item.findingId} onClick={() => { setDraftFinding(item); setRequestExplanation(""); setRemovalDraft(""); setDraftError(""); setDraftNotice(""); }} className="mt-3 rounded-lg border border-cyan-300/20 px-3 py-2 text-xs text-cyan-200 disabled:opacity-50">Prepare removal / correction request</button></div></div></article>)}</div>}
+            <button type="button" disabled={!item.findingId} onClick={() => { setDraftFinding(item); setRequestExplanation(""); setRemovalDraft(""); setDraftError(""); setDraftNotice(""); }} className="mt-3 rounded-lg border border-cyan-300/20 px-3 py-2 text-xs text-cyan-200 disabled:opacity-50">Prepare removal / correction request</button><div className="mt-2 flex flex-wrap gap-2"><button type="button" disabled={!item.findingId} onClick={() => { setOutcomeFinding(item); setOutcomeStatus("no_response"); setOutcomeNote(""); setOutcomeError(""); setOutcomeNotice(""); }} className="rounded-lg border border-amber-300/20 px-3 py-2 text-xs text-amber-200 disabled:opacity-50">Record website response / outcome</button><button type="button" disabled={!item.findingId || outcomeHistoryBusyId === item.findingId} onClick={() => loadOutcomeHistory(item)} className="rounded-lg border border-white/10 px-3 py-2 text-xs text-slate-300 disabled:opacity-50">{outcomeHistoryBusyId === item.findingId ? "Loading outcomes…" : "View outcome history"}</button></div>{outcomeHistory[item.findingId ?? ""] && <div className="mt-2 space-y-2 rounded-xl border border-amber-300/10 p-3"><p className="text-xs font-semibold text-slate-200">Reported outcomes · {outcomeHistory[item.findingId ?? ""].length} entries</p>{outcomeHistory[item.findingId ?? ""].length === 0 ? <p className="text-xs text-slate-400">No outcomes recorded.</p> : outcomeHistory[item.findingId ?? ""].map((entry) => <div key={entry.id} className="border-t border-white/5 pt-2"><p className="text-xs text-amber-100">{outcomeLabel(entry.outcome)}</p>{entry.note && <p className="mt-1 whitespace-pre-wrap text-xs text-slate-300">{entry.note}</p>}<p className="mt-1 text-xs text-slate-500">{new Date(entry.reported_at).toLocaleString()} · user-reported, not independently verified</p></div>)}</div>}</div></div></article>)}</div>}
+
+          {outcomeFinding && <section className="mt-5 rounded-2xl border border-amber-300/20 bg-[#080e17] p-4 sm:p-5">
+            <h3 className="font-semibold">Record website response or removal outcome</h3>
+            <p className="mt-2 break-all text-xs text-slate-400">{outcomeFinding.url}</p>
+            <p className="mt-2 text-sm text-slate-300">Record what the website communicated or what you observed. This creates an audit entry and does not change the finding to “removed verified.”</p>
+            <label className="mt-4 block"><span className="text-sm">Reported outcome</span><select value={outcomeStatus} onChange={(event) => setOutcomeStatus(event.target.value)} className="mt-2 w-full rounded-xl border border-white/10 bg-[#0d1420] p-3 text-sm"><option value="no_response">No response yet</option><option value="needs_more_information">Website requested more information</option><option value="request_accepted">Website says request accepted</option><option value="request_rejected">Website says request rejected</option><option value="content_removed_reported">I believe the content was removed</option><option value="content_reappeared_reported">Content appears to have reappeared</option></select></label>
+            <label className="mt-4 block"><span className="text-sm">Evidence note {["needs_more_information","request_rejected","content_removed_reported","content_reappeared_reported"].includes(outcomeStatus) ? "(required)" : "(optional)"}</span><textarea value={outcomeNote} onChange={(event) => setOutcomeNote(event.target.value)} maxLength={1500} rows={3} placeholder="Summarize the response or observation. Do not include passwords, identity numbers, or unnecessary sensitive data." className="mt-2 w-full rounded-xl border border-white/10 bg-[#0d1420] p-3 text-sm outline-none focus:border-amber-300/60" /></label>
+            {outcomeError && <p role="alert" className="mt-3 text-sm text-red-200">{outcomeError}</p>}
+            {outcomeNotice && <p role="status" className="mt-3 rounded-xl border border-amber-300/20 bg-amber-300/5 p-3 text-xs leading-5 text-amber-100">{outcomeNotice}</p>}
+            <div className="mt-3 flex flex-wrap gap-2"><button type="button" disabled={outcomeBusy || (["needs_more_information","request_rejected","content_removed_reported","content_reappeared_reported"].includes(outcomeStatus) && !outcomeNote.trim())} onClick={saveOutcome} className="rounded-xl bg-amber-200 px-4 py-2 text-sm font-semibold text-slate-950 disabled:opacity-50">{outcomeBusy ? "Saving…" : "Save outcome report"}</button><button type="button" onClick={() => setOutcomeFinding(null)} className="rounded-xl border border-white/10 px-4 py-2 text-sm text-slate-300">Close</button></div>
+          </section>}
 
           {draftFinding && <section className="mt-5 rounded-2xl border border-cyan-300/20 bg-[#080e17] p-4 sm:p-5">
             <h3 className="font-semibold">Prepare a removal or correction request</h3>
